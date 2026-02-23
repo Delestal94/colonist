@@ -191,7 +191,7 @@ export class Board {
         // Find border vertices (vertices that touch fewer than 3 hexes)
         const borderVertices = this.vertices.filter(v => v.hexes.length < 3);
 
-        // Find pairs of adjacent border vertices
+        // Find pairs of adjacent border vertices (border edges)
         const borderEdges = this.edges.filter(e => {
             const v1 = this.vertices[e.vertices[0]];
             const v2 = this.vertices[e.vertices[1]];
@@ -200,27 +200,50 @@ export class Board {
 
         if (borderEdges.length === 0) return;
 
-        // Select port locations evenly spaced
+        // Sort border edges by angle from center for even distribution
+        const edgeAngles = borderEdges.map(e => {
+            const v1 = this.vertices[e.vertices[0]];
+            const v2 = this.vertices[e.vertices[1]];
+            const mx = (v1.position.x + v2.position.x) / 2;
+            const my = (v1.position.y + v2.position.y) / 2;
+            return { edge: e, angle: Math.atan2(my, mx) };
+        });
+        edgeAngles.sort((a, b) => a.angle - b.angle);
+        const sortedEdges = edgeAngles.map(ea => ea.edge);
+
+        // Port types to assign
         const portTypes = [
             PORT_TYPES.GENERIC, PORT_TYPES.GENERIC, PORT_TYPES.GENERIC, PORT_TYPES.GENERIC,
             PORT_TYPES.WOOD, PORT_TYPES.BRICK, PORT_TYPES.WHEAT, PORT_TYPES.SHEEP, PORT_TYPES.ORE,
         ];
 
         // Scale port count for larger boards
-        const extraGeneric = Math.max(0, Math.floor(borderEdges.length / 6) - portTypes.length);
-        for (let i = 0; i < extraGeneric; i++) {
+        const targetPorts = Math.min(portTypes.length + Math.max(0, Math.floor(sortedEdges.length / 6) - portTypes.length), sortedEdges.length);
+        while (portTypes.length < targetPorts) {
             portTypes.push(PORT_TYPES.GENERIC);
         }
 
         this._shuffle(portTypes);
 
-        // Space ports evenly around the border
-        const spacing = Math.max(1, Math.floor(borderEdges.length / Math.min(portTypes.length, borderEdges.length)));
+        // Assign ports, ensuring NO vertex is shared between two ports
+        const usedVertices = new Set();
+        const spacing = Math.max(1, Math.floor(sortedEdges.length / portTypes.length));
 
         let portIndex = 0;
-        for (let i = 0; i < borderEdges.length && portIndex < portTypes.length; i += spacing) {
-            const edge = borderEdges[i];
+        for (let i = 0; i < sortedEdges.length && portIndex < portTypes.length; i++) {
+            // Try edges spaced evenly, but skip if vertices are already used
+            const candidateIdx = (i * spacing) % sortedEdges.length;
+            const edge = sortedEdges[candidateIdx];
+
+            // Skip if either vertex is already used by another port
+            if (usedVertices.has(edge.vertices[0]) || usedVertices.has(edge.vertices[1])) {
+                continue;
+            }
+
             const type = portTypes[portIndex++];
+
+            usedVertices.add(edge.vertices[0]);
+            usedVertices.add(edge.vertices[1]);
 
             this.vertices[edge.vertices[0]].port = type;
             this.vertices[edge.vertices[1]].port = type;
@@ -230,6 +253,27 @@ export class Board {
                 vertexIds: [...edge.vertices],
                 type,
             });
+        }
+
+        // If we didn't place all ports (due to conflicts), do a second pass
+        if (portIndex < portTypes.length) {
+            for (const edge of sortedEdges) {
+                if (portIndex >= portTypes.length) break;
+                if (usedVertices.has(edge.vertices[0]) || usedVertices.has(edge.vertices[1])) continue;
+
+                const type = portTypes[portIndex++];
+                usedVertices.add(edge.vertices[0]);
+                usedVertices.add(edge.vertices[1]);
+
+                this.vertices[edge.vertices[0]].port = type;
+                this.vertices[edge.vertices[1]].port = type;
+
+                this.ports.push({
+                    edgeId: edge.id,
+                    vertexIds: [...edge.vertices],
+                    type,
+                });
+            }
         }
     }
 
