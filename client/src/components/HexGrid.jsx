@@ -83,22 +83,33 @@ export default function HexGrid({ board, validPlacements, onVertexClick, onEdgeC
                         {/* Number token */}
                         {hex.numberToken && (
                             <>
-                                <circle className="hex-number-bg" cx={center.x} cy={center.y} r={12} />
+                                <circle className="hex-number-bg" cx={center.x} cy={center.y} r={15} />
                                 <text
                                     className={`hex-number-text ${isHighProb ? 'high-prob' : ''}`}
                                     x={center.x}
-                                    y={center.y - 1}
-                                    fontSize="11"
+                                    y={center.y - 2}
+                                    fontSize="14"
                                 >
                                     {hex.numberToken}
                                 </text>
-                                <text
-                                    className="hex-number-dots"
-                                    x={center.x}
-                                    y={center.y + 8}
-                                >
-                                    {'•'.repeat(dots)}
-                                </text>
+                                {/* Probability dots as circles */}
+                                {dots > 0 && (() => {
+                                    const dotRadius = 1.5;
+                                    const dotSpacing = 4.5;
+                                    const totalWidth = (dots - 1) * dotSpacing;
+                                    const startX = center.x - totalWidth / 2;
+                                    const dotY = center.y + 9;
+                                    const dotColor = isHighProb ? '#c0392b' : '#888';
+                                    return Array.from({ length: dots }, (_, di) => (
+                                        <circle
+                                            key={`dot-${hex.id}-${di}`}
+                                            cx={startX + di * dotSpacing}
+                                            cy={dotY}
+                                            r={dotRadius}
+                                            fill={dotColor}
+                                        />
+                                    ));
+                                })()}
                             </>
                         )}
 
@@ -192,15 +203,27 @@ export default function HexGrid({ board, validPlacements, onVertexClick, onEdgeC
 
                 return (
                     <g key={`edge-${edge.id}`} className="edge-spot">
-                        {/* Valid placement indicator */}
+                        {/* Valid placement: fat invisible hitbox + visible indicator */}
                         {isValid && (buildMode === 'road' || showSetupRoad) && (
-                            <line
-                                className="edge-valid-indicator"
-                                x1={v1.x} y1={v1.y}
-                                x2={v2.x} y2={v2.y}
-                                onClick={(e) => { e.stopPropagation(); onEdgeClick(edge.id); }}
-                                style={{ cursor: 'pointer' }}
-                            />
+                            <>
+                                {/* Invisible fat hitbox for easy clicking */}
+                                <line
+                                    x1={v1.x} y1={v1.y}
+                                    x2={v2.x} y2={v2.y}
+                                    stroke="transparent"
+                                    strokeWidth={14}
+                                    onClick={(e) => { e.stopPropagation(); onEdgeClick(edge.id); }}
+                                    style={{ cursor: 'pointer' }}
+                                />
+                                {/* Visible indicator */}
+                                <line
+                                    className="edge-valid-indicator"
+                                    x1={v1.x} y1={v1.y}
+                                    x2={v2.x} y2={v2.y}
+                                    onClick={(e) => { e.stopPropagation(); onEdgeClick(edge.id); }}
+                                    style={{ cursor: 'pointer', pointerEvents: 'none' }}
+                                />
+                            </>
                         )}
 
                         {/* Existing road */}
