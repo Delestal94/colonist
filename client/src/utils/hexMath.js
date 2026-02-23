@@ -55,7 +55,7 @@ export function calculateBoardBounds(hexes, size = HEX_SIZE) {
         });
     });
 
-    const padding = size * 1.5;
+    const padding = size * 2.5; // Extra padding for port labels outside the board
     return {
         x: minX - padding,
         y: minY - padding,

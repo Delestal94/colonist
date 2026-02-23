@@ -126,21 +126,54 @@ export default function HexGrid({ board, validPlacements, onVertexClick, onEdgeC
                 const v2 = vertexPositions[port.vertexIds[1]];
                 if (!v1 || !v2) return null;
 
+                // Midpoint between the two port vertices
                 const mx = (v1.x + v2.x) / 2;
                 const my = (v1.y + v2.y) / 2;
-                const label = port.type === 'generic' ? '3:1' : `2:1 ${RESOURCE_ICONS[port.type] || ''}`;
+
+                // Push the label outward from the board center (0,0)
+                const dist = Math.sqrt(mx * mx + my * my);
+                const pushDist = HEX_SIZE * 0.8;
+                const outX = dist > 0 ? mx + (mx / dist) * pushDist : mx;
+                const outY = dist > 0 ? my + (my / dist) * pushDist : my - pushDist;
+
+                const label = port.type === 'generic' ? '3:1' : `2:1`;
+                const icon = port.type !== 'generic' ? (RESOURCE_ICONS[port.type] || '') : '⚓';
 
                 return (
                     <g key={`port-${i}`}>
+                        {/* Lines from port label to the two vertices */}
+                        <line
+                            x1={outX} y1={outY}
+                            x2={v1.x} y2={v1.y}
+                            stroke="rgba(150, 200, 255, 0.35)"
+                            strokeWidth={1.5}
+                            strokeDasharray="3 2"
+                        />
+                        <line
+                            x1={outX} y1={outY}
+                            x2={v2.x} y2={v2.y}
+                            stroke="rgba(150, 200, 255, 0.35)"
+                            strokeWidth={1.5}
+                            strokeDasharray="3 2"
+                        />
+                        {/* Port vertex dots */}
+                        <circle cx={v1.x} cy={v1.y} r={3} fill="rgba(150, 200, 255, 0.5)" />
+                        <circle cx={v2.x} cy={v2.y} r={3} fill="rgba(150, 200, 255, 0.5)" />
+                        {/* Port label background */}
                         <rect
                             className="port-bg"
-                            x={mx - 14}
-                            y={my - 6}
-                            width={28}
-                            height={12}
-                            rx={3}
+                            x={outX - 16}
+                            y={outY - 10}
+                            width={32}
+                            height={20}
+                            rx={4}
                         />
-                        <text className="port-label" x={mx} y={my}>
+                        {/* Port icon */}
+                        <text x={outX} y={outY - 2} textAnchor="middle" dominantBaseline="central" fontSize="8">
+                            {icon}
+                        </text>
+                        {/* Port ratio */}
+                        <text className="port-label" x={outX} y={outY + 6} fontSize="7">
                             {label}
                         </text>
                     </g>
