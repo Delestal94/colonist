@@ -82,6 +82,8 @@ export const TERRAIN_FILLS = {
     pasture: '#58d68d',
     mountains: '#95a5a6',
     desert: '#f5e6c8',
+    fog: '#b2bec3',
+    water: 'transparent',
 };
 
 // Resource icons (emoji for now)

@@ -22,6 +22,7 @@ const PHASE_LABELS = {
 export default function GameBoard({ gameState, lastDice, chatMessages, emit, emitNoAck, buildMode, setBuildMode, freeRoads, setFreeRoads }) {
     const [showTrade, setShowTrade] = useState(false);
     const [discardAmounts, setDiscardAmounts] = useState({});
+    const [isDebugPortMode, setIsDebugPortMode] = useState(false);
 
     const myPlayer = gameState.players.find(p => p.id === gameState.myPlayerId);
     const currentPlayer = gameState.players[gameState.currentPlayerIndex];
@@ -88,6 +89,25 @@ export default function GameBoard({ gameState, lastDice, chatMessages, emit, emi
         setDiscardAmounts({});
     }
 
+    const PORT_CYCLE = [null, 'generic', 'wood', 'brick', 'wheat', 'sheep', 'ore'];
+    async function handleDebugEdgeClick(edgeId) {
+        const currentPort = gameState.board.ports.find(p => p.edgeId === edgeId);
+        const currentIndex = PORT_CYCLE.indexOf(currentPort ? currentPort.type : null);
+        const nextType = PORT_CYCLE[(currentIndex + 1) % PORT_CYCLE.length];
+        await emit('debug-update-port', { edgeId, type: nextType });
+    }
+
+    function exportPorts() {
+        const ports = gameState.board.ports.map(p => ({
+            edgeId: p.edgeId,
+            vertexIds: p.vertexIds,
+            type: p.type
+        }));
+        const json = JSON.stringify(ports, null, 2);
+        console.log("BOARD PORTS CONFIG:", json);
+        alert("Configuración de puertos copiada a la consola (F12)");
+    }
+
     return (
         <div className="game-container">
             {/* Header */}
@@ -113,12 +133,14 @@ export default function GameBoard({ gameState, lastDice, chatMessages, emit, emi
                         validPlacements={validPlacements}
                         onVertexClick={handleVertexClick}
                         onEdgeClick={handleEdgeClick}
+                        onDebugEdgeClick={handleDebugEdgeClick}
                         onHexClick={handleHexClick}
                         showSetupSettlement={showSetupSettlement}
                         showSetupRoad={showSetupRoad}
                         showMoveRobber={showMoveRobber}
                         buildMode={buildMode}
                         players={gameState.players}
+                        isDebug={isDebugPortMode}
                     />
                 )}
             </div>
@@ -160,6 +182,30 @@ export default function GameBoard({ gameState, lastDice, chatMessages, emit, emi
                     messages={chatMessages}
                     emitNoAck={emitNoAck}
                 />
+
+                {/* Debug Panel */}
+                <div className="sidebar-section debug-section">
+                    <h3>🛠️ Design Tools</h3>
+                    <button
+                        className={`btn ${isDebugPortMode ? 'btn-danger' : 'btn-secondary'}`}
+                        onClick={() => setIsDebugPortMode(!isDebugPortMode)}
+                    >
+                        {isDebugPortMode ? '🛑 Stop Design' : '⚓ Edit Ports'}
+                    </button>
+                    {isDebugPortMode && (
+                        <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.5rem' }}>
+                            <button className="btn btn-primary" onClick={exportPorts} style={{ flex: 1 }}>
+                                📋 JSON
+                            </button>
+                            <button className="btn btn-danger btn-small" onClick={() => emit('debug-clear-ports')} title="Clear all ports">
+                                🗑️ Clear
+                            </button>
+                        </div>
+                    )}
+                    <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+                        Click on edges to cycle port types.
+                    </p>
+                </div>
             </div>
 
             {/* Steal Dialog */}
@@ -238,6 +284,7 @@ export default function GameBoard({ gameState, lastDice, chatMessages, emit, emi
                 <TradeDialog
                     myPlayer={myPlayer}
                     players={gameState.players}
+                    board={gameState.board}
                     emit={emit}
                     onClose={() => setShowTrade(false)}
                     activeTrade={gameState.activeTrade}

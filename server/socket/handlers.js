@@ -48,6 +48,15 @@ export function registerSocketHandlers(io, gameManager) {
             broadcastState(game);
         });
 
+        socket.on('update-settings', ({ settings }, callback) => {
+            const game = getGame();
+            if (!game) return callback?.({ error: 'Not in a room' });
+
+            const result = game.updateSettings(socket.id, settings);
+            callback?.(result);
+            broadcastState(game);
+        });
+
         socket.on('start-game', (_, callback) => {
             const game = getGame();
             if (!game) return callback?.({ error: 'Not in a room' });
@@ -237,6 +246,24 @@ export function registerSocketHandlers(io, gameManager) {
                 message,
                 timestamp: Date.now(),
             });
+        });
+
+        socket.on('debug-update-port', ({ edgeId, type }, callback) => {
+            const game = getGame();
+            if (!game) return callback?.({ error: 'Not in a room' });
+
+            const result = game.debugUpdatePort(socket.id, edgeId, type);
+            callback?.(result);
+            broadcastState(game);
+        });
+
+        socket.on('debug-clear-ports', (_, callback) => {
+            const game = getGame();
+            if (!game) return callback?.({ error: 'Not in a room' });
+
+            const result = game.debugClearPorts(socket.id);
+            callback?.(result);
+            broadcastState(game);
         });
 
         // ---- DISCONNECT ----

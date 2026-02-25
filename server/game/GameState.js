@@ -9,6 +9,7 @@ import { TradeManager } from './TradeManager.js';
 import {
     RESOURCES, BUILDING_COSTS, BUILDING_LIMITS,
     GAME_PHASES, PLAYER_COLORS, BOARD_CONFIGS, DEV_CARD_TYPES,
+    DEFAULT_GAME_SETTINGS, MAP_CONFIGS, MAP_TYPES,
 } from './constants.js';
 
 export class GameState {
@@ -18,6 +19,7 @@ export class GameState {
         this.board = null;
         this.devCards = null;
         this.tradeManager = new TradeManager();
+        this.settings = { ...DEFAULT_GAME_SETTINGS };
 
         this.phase = GAME_PHASES.LOBBY;
         this.currentPlayerIndex = 0;
@@ -29,6 +31,35 @@ export class GameState {
         this.turnNumber = 0;
 
         this.log = []; // game log messages
+    }
+
+    // ---- SETTINGS (lobby only) ----
+
+    updateSettings(playerId, newSettings) {
+        if (this.phase !== GAME_PHASES.LOBBY) return { error: 'Game already started' };
+        // Only host (first player) can change settings
+        if (this.players.length === 0 || this.players[0].id !== playerId) {
+            return { error: 'Only the host can change settings' };
+        }
+
+        // Validate mapType
+        if (newSettings.mapType && MAP_CONFIGS[newSettings.mapType]) {
+            this.settings.mapType = newSettings.mapType;
+        }
+        if (typeof newSettings.friendlyRobber === 'boolean') {
+            this.settings.friendlyRobber = newSettings.friendlyRobber;
+        }
+        if (typeof newSettings.speedMode === 'boolean') {
+            this.settings.speedMode = newSettings.speedMode;
+        }
+        if (newSettings.victoryPoints && [10, 12, 14, 16, 18].includes(newSettings.victoryPoints)) {
+            this.settings.victoryPoints = newSettings.victoryPoints;
+        }
+        if (typeof newSettings.harbormaster === 'boolean') {
+            this.settings.harbormaster = newSettings.harbormaster;
+        }
+
+        return { success: true, settings: this.settings };
     }
 
     // ---- LOBBY ----
@@ -77,23 +108,48 @@ export class GameState {
 
     // ---- START GAME ----
 
-    startGame() {
+    startGame(playerId) {
         if (this.phase !== GAME_PHASES.LOBBY) return { error: 'Game already started' };
-        if (this.players.length < 2) return { error: 'Need at least 2 players' };
+        if (this.players.length === 0 || this.players[0].id !== playerId) {
+            return { error: 'Only the host can start the game' };
+        }
 
-        this.board = new Board(this.players.length);
-        this.devCards = new DevelopmentCards(this.players.length);
+        // Validate player count for selected map
+        const mapConfig = MAP_CONFIGS[this.settings.mapType];
+        if (this.players.length > mapConfig.maxPlayers) {
+            return { error: `${mapConfig.label} supports max ${mapConfig.maxPlayers} players` };
+        }
+
+        // Initialize board and cards
+        this.board = new Board(this.players.length, this.settings.mapType);
+
+        // Override board victory points with user setting
+        if (this.settings.victoryPoints) {
+            this.board.victoryPoints = this.settings.victoryPoints;
+        }
+
+        this.devCards = new DevelopmentCards(this.players.length); // Keep original parameter for dev cards
 
         // Randomize player order
         this._shuffleArray(this.players);
         this.players.forEach((p, i) => { p.color = PLAYER_COLORS[i]; });
+
+        // Give starting resources in speed mode
+        if (this.settings.speedMode) {
+            this.players.forEach(player => {
+                Object.values(RESOURCES).forEach(res => {
+                    player.addResource(res, 2);
+                });
+            });
+            this._addLog('⚡ Speed Mode: each player starts with 2 of each resource');
+        }
 
         this.phase = GAME_PHASES.SETUP_SETTLEMENT_1;
         this.currentPlayerIndex = 0;
         this.setupRound = 1;
         this.turnNumber = 1;
 
-        this._addLog('Game started!');
+        this._addLog(`Game started! Map: ${mapConfig.label}`);
         this._addLog(`${this.currentPlayer.name}'s turn to place a settlement`);
 
         return { success: true };
@@ -153,6 +209,7 @@ export class GameState {
         this.currentPlayer.roads.push(edgeId);
 
         this._addLog(`${this.currentPlayer.name} placed a road`);
+        this._revealAdjacentFog(edgeId);
 
         // Advance to next player or next phase
         this._advanceSetup();
@@ -360,6 +417,10 @@ export class GameState {
             if (touchesHex) {
                 const player = this.getPlayer(vertex.building.playerId);
                 if (player && player.totalResources > 0) {
+                    // Friendly robber: can't target players with ≤2 VP
+                    if (this.settings.friendlyRobber && player.publicVictoryPoints <= 2) {
+                        return;
+                    }
                     targets.add(player);
                 }
             }
@@ -433,6 +494,7 @@ export class GameState {
         player.roads.push(edgeId);
 
         this._addLog(`${player.name} built a road`);
+        this._revealAdjacentFog(edgeId);
         this._updateLongestRoad(playerId);
         this._checkLongestRoad();
         this._checkWin();
@@ -450,6 +512,7 @@ export class GameState {
         player.roads.push(edgeId);
 
         this._addLog(`${player.name} built a free road`);
+        this._revealAdjacentFog(edgeId);
         this._updateLongestRoad(playerId);
         this._checkLongestRoad();
 
@@ -476,6 +539,14 @@ export class GameState {
             const connectedEdges = this.board.getVertexEdges(vertexId);
             const hasRoad = connectedEdges.some(e => e.road && e.road.playerId === playerId);
             if (!hasRoad) return { error: 'Must be connected to your road network' };
+        }
+
+        // Fog Island rule: all adjacent hexes must be revealed
+        if (this.settings.mapType === MAP_TYPES.FOG_ISLAND) {
+            const touchesFog = vertex.hexes.some(vh => this.board.hexes[vh.hexId].fog);
+            if (touchesFog) {
+                return { error: 'No puedes construir aquí: todos los hexágonos adyacentes deben estar descubiertos' };
+            }
         }
 
         return { success: true };
@@ -867,6 +938,22 @@ export class GameState {
         }
     }
 
+    _revealAdjacentFog(edgeId) {
+        if (this.settings.mapType !== MAP_TYPES.FOG_ISLAND) return;
+
+        const edge = this.board.edges[edgeId];
+        edge.vertices.forEach(vertexId => {
+            const hexes = this.board.getVertexHexes(vertexId);
+            hexes.forEach(hex => {
+                if (hex.fog) {
+                    if (this.board.revealHex(hex.id)) {
+                        this._addLog(`A path into the fog was found!`);
+                    }
+                }
+            });
+        });
+    }
+
     // ---- SERIALIZATION ----
 
     // Get game state for a specific player (hides other players' cards)
@@ -882,6 +969,7 @@ export class GameState {
             lastDiceRoll: this.lastDiceRoll,
             winner: this.winner,
             board: this.board?.toJSON(),
+            settings: this.settings,
             players: this.players.map(p =>
                 p.id === playerId ? p.toJSON() : p.toPublicJSON()
             ),
@@ -926,5 +1014,17 @@ export class GameState {
         }
 
         return result;
+    }
+    debugUpdatePort(playerId, edgeId, type) {
+        // In a real game we'd check if host, but for debug let anyone
+        if (!this.board) return { error: 'No board' };
+        this.board.updatePort(edgeId, type);
+        return { success: true };
+    }
+
+    debugClearPorts(playerId) {
+        if (!this.board) return { error: 'No board' };
+        this.board.clearAllPorts();
+        return { success: true };
     }
 }

@@ -3,7 +3,7 @@ import { RESOURCE_ICONS } from '../utils/hexMath.js';
 
 const RESOURCES = ['wood', 'brick', 'wheat', 'sheep', 'ore'];
 
-export default function TradeDialog({ myPlayer, players, emit, onClose, activeTrade, myPlayerId }) {
+export default function TradeDialog({ myPlayer, players, board, emit, onClose, activeTrade, myPlayerId }) {
     const [offering, setOffering] = useState({ wood: 0, brick: 0, wheat: 0, sheep: 0, ore: 0 });
     const [requesting, setRequesting] = useState({ wood: 0, brick: 0, wheat: 0, sheep: 0, ore: 0 });
     const [mode, setMode] = useState('player'); // 'player' | 'bank'
@@ -36,13 +36,28 @@ export default function TradeDialog({ myPlayer, players, emit, onClose, activeTr
         onClose();
     }
 
+    function getBestRatio(resource) {
+        if (!board) return 4;
+        let ratio = 4;
+        const playerVertices = [...(myPlayer.settlements || []), ...(myPlayer.cities || [])];
+
+        for (const vId of playerVertices) {
+            const vertex = board.vertices[vId];
+            if (vertex && vertex.port) {
+                if (vertex.port === resource) {
+                    ratio = Math.min(ratio, 2);
+                } else if (vertex.port === 'generic') {
+                    ratio = Math.min(ratio, 3);
+                }
+            }
+        }
+        return ratio;
+    }
+
     async function handleBankTrade() {
         if (!bankOffer || !bankRequest || bankOffer === bankRequest) return;
 
-        // Determine ratio based on ports
-        let ratio = 4;
-        const playerVertices = [...(myPlayer.settlements || []), ...(myPlayer.cities || [])];
-        // We'd need port info here; default to 4:1 for now
+        const ratio = getBestRatio(bankOffer);
 
         await emit('bank-trade', {
             offering: { resource: bankOffer, amount: ratio },
@@ -184,29 +199,32 @@ export default function TradeDialog({ myPlayer, players, emit, onClose, activeTr
 
                         {mode === 'bank' && (
                             <>
-                                <h2>🏦 Bank Trade (4:1)</h2>
+                                <h2>🏦 Bank Trade ({bankOffer ? `${getBestRatio(bankOffer)}:1` : '4:1'})</h2>
                                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1rem' }}>
                                     Trade 4 of one resource for 1 of another. Ports may give better rates.
                                 </p>
 
                                 <div className="trade-section">
-                                    <h4>Give (4x)</h4>
+                                    <h4>Give ({bankOffer ? `${getBestRatio(bankOffer)}x` : '4x'})</h4>
                                     <div className="trade-resources">
-                                        {RESOURCES.map(res => (
-                                            <div
-                                                key={res}
-                                                className="trade-resource-btn"
-                                                onClick={() => setBankOffer(res)}
-                                                style={{
-                                                    borderColor: bankOffer === res ? 'var(--accent-blue)' : 'var(--border-color)',
-                                                    opacity: (myPlayer.resources[res] || 0) < 4 ? 0.4 : 1,
-                                                }}
-                                            >
-                                                <span className="resource-icon">{RESOURCE_ICONS[res]}</span>
-                                                <span className="count">{myPlayer.resources[res] || 0}</span>
-                                                <span className="resource-label">{res}</span>
-                                            </div>
-                                        ))}
+                                        {RESOURCES.map(res => {
+                                            const resRatio = getBestRatio(res);
+                                            return (
+                                                <div
+                                                    key={res}
+                                                    className="trade-resource-btn"
+                                                    onClick={() => setBankOffer(res)}
+                                                    style={{
+                                                        borderColor: bankOffer === res ? 'var(--accent-blue)' : 'var(--border-color)',
+                                                        opacity: (myPlayer.resources[res] || 0) < resRatio ? 0.4 : 1,
+                                                    }}
+                                                >
+                                                    <span className="resource-icon">{RESOURCE_ICONS[res]}</span>
+                                                    <span className="count">{myPlayer.resources[res] || 0}</span>
+                                                    <span className="resource-label">{res}</span>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 </div>
 
@@ -231,7 +249,7 @@ export default function TradeDialog({ myPlayer, players, emit, onClose, activeTr
                                     <button
                                         className="btn btn-primary"
                                         onClick={handleBankTrade}
-                                        disabled={!bankOffer || !bankRequest}
+                                        disabled={!bankOffer || !bankRequest || (myPlayer.resources[bankOffer] || 0) < getBestRatio(bankOffer)}
                                         style={{ flex: 1 }}
                                     >
                                         🔄 Trade

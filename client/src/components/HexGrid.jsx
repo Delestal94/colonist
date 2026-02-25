@@ -1,7 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useRef, useEffect } from 'react';
 import { hexToPixel, hexPointsString, calculateBoardBounds, TERRAIN_FILLS, RESOURCE_ICONS, getNumberDots, HEX_SIZE } from '../utils/hexMath.js';
 
-export default function HexGrid({ board, validPlacements, onVertexClick, onEdgeClick, onHexClick, showSetupSettlement, showSetupRoad, showMoveRobber, buildMode, players }) {
+export default function HexGrid({ board, validPlacements, onVertexClick, onEdgeClick, onDebugEdgeClick, onHexClick, showSetupSettlement, showSetupRoad, showMoveRobber, buildMode, players, isDebug }) {
 
     const bounds = useMemo(() => {
         if (!board?.hexes) return { x: -200, y: -200, width: 400, height: 400 };
@@ -26,17 +26,79 @@ export default function HexGrid({ board, validPlacements, onVertexClick, onEdgeC
         return map;
     }, [board.vertices]);
 
+    const [view, setView] = useState({ x: 0, y: 0, scale: 1 });
+    const svgRef = useRef(null);
+    const isDragging = useRef(false);
+    const lastPos = useRef({ x: 0, y: 0 });
+
+    useEffect(() => {
+        const svg = svgRef.current;
+        if (!svg) return;
+
+        const handleWheel = (e) => {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? 0.9 : 1.1;
+            setView(prev => ({
+                ...prev,
+                scale: Math.min(Math.max(prev.scale * delta, 0.4), 5)
+            }));
+        };
+
+        svg.addEventListener('wheel', handleWheel, { passive: false });
+        return () => svg.removeEventListener('wheel', handleWheel);
+    }, []);
+
+    const handleMouseDown = (e) => {
+        if (e.button !== 0) return; // Only left click for pan
+        isDragging.current = true;
+        lastPos.current = { x: e.clientX, y: e.clientY };
+    };
+
+    const handleMouseMove = (e) => {
+        if (!isDragging.current) return;
+        const dx = (lastPos.current.x - e.clientX) * (1 / view.scale);
+        const dy = (lastPos.current.y - e.clientY) * (1 / view.scale);
+
+        setView(prev => ({
+            ...prev,
+            x: prev.x + dx,
+            y: prev.y + dy
+        }));
+
+        lastPos.current = { x: e.clientX, y: e.clientY };
+    };
+
+    const handleMouseUp = () => {
+        isDragging.current = false;
+    };
+
+    // Calculate dynamic viewBox
+    const zoomedViewBox = useMemo(() => {
+        const w = bounds.width / view.scale;
+        const h = bounds.height / view.scale;
+        const x = bounds.x + view.x + (bounds.width - w) / 2;
+        const y = bounds.y + view.y + (bounds.height - h) / 2;
+        return `${x} ${y} ${w} ${h}`;
+    }, [bounds, view]);
+
     return (
         <svg
+            ref={svgRef}
             className="board-svg"
-            viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`}
+            viewBox={zoomedViewBox}
             preserveAspectRatio="xMidYMid meet"
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+            style={{ cursor: isDragging.current ? 'grabbing' : 'default', touchAction: 'none' }}
         >
             <defs>
-                {/* Water gradient background */}
-                <radialGradient id="ocean-gradient" cx="50%" cy="50%" r="60%">
-                    <stop offset="0%" stopColor="#1a3a5c" />
-                    <stop offset="100%" stopColor="#0a1628" />
+                {/* Water gradient background (Tropical Ocean Style) */}
+                <radialGradient id="ocean-gradient" cx="50%" cy="50%" r="70%">
+                    <stop offset="0%" stopColor="#0ea5e9" />
+                    <stop offset="20%" stopColor="#0369a1" />
+                    <stop offset="100%" stopColor="#0c4a6e" />
                 </radialGradient>
 
                 {/* Glow filter */}
@@ -113,12 +175,45 @@ export default function HexGrid({ board, validPlacements, onVertexClick, onEdgeC
                             </>
                         )}
 
-                        {/* Desert icon */}
-                        {hex.terrain === 'desert' && !hex.hasRobber && (
-                            <text x={center.x} y={center.y} textAnchor="middle" dominantBaseline="central" fontSize="18">
-                                🏜️
-                            </text>
-                        )}
+                        {/* Resource / Terrain Icon */}
+                        {(() => {
+                            let icon = null;
+                            let fontSize = 28;
+                            let yOffset = 0;
+                            let opacity = 0.9;
+
+                            if (hex.terrain === 'desert') {
+                                icon = '🏜️';
+                                fontSize = 20;
+                            } else if (hex.terrain === 'fog') {
+                                icon = '☁️';
+                                fontSize = 26;
+                                opacity = 0.7;
+                            } else if (hex.resource && RESOURCE_ICONS[hex.resource]) {
+                                icon = RESOURCE_ICONS[hex.resource];
+                                if (hex.numberToken) {
+                                    fontSize = 18;
+                                    yOffset = -25;
+                                    opacity = 0.6;
+                                }
+                            }
+
+                            if (!icon || (hex.hasRobber && hex.terrain === 'desert')) return null;
+
+                            return (
+                                <text
+                                    x={center.x}
+                                    y={center.y + yOffset}
+                                    textAnchor="middle"
+                                    dominantBaseline="central"
+                                    fontSize={fontSize}
+                                    opacity={opacity}
+                                    style={{ pointerEvents: 'none', userSelect: 'none', filter: 'drop-shadow(0 2px 2px rgba(0,0,0,0.2))' }}
+                                >
+                                    {icon}
+                                </text>
+                            );
+                        })()}
 
                         {/* Robber */}
                         {hex.hasRobber && (
@@ -143,48 +238,89 @@ export default function HexGrid({ board, validPlacements, onVertexClick, onEdgeC
 
                 // Push the label outward from the board center (0,0)
                 const dist = Math.sqrt(mx * mx + my * my);
-                const pushDist = HEX_SIZE * 0.8;
+                const isFogIsland = board.mapType === 'fog_island';
+                const isInternalPort = isFogIsland && dist < 140; // Detection threshold for "inner" ports
+
+                // Push inward for internal ports, outward for normal ones
+                // Gap is roughly 50px to 110px. -0.7 * 50 = -35. 110-35 = 75 (Middle!)
+                const pushDist = HEX_SIZE * (isInternalPort ? -0.7 : 0.8);
                 const outX = dist > 0 ? mx + (mx / dist) * pushDist : mx;
                 const outY = dist > 0 ? my + (my / dist) * pushDist : my - pushDist;
 
                 const label = port.type === 'generic' ? '3:1' : `2:1`;
-                const icon = port.type !== 'generic' ? (RESOURCE_ICONS[port.type] || '') : '⚓';
+                const resourceIcon = port.type !== 'generic' ? (RESOURCE_ICONS[port.type] || '') : '⚓';
+                const icon = isFogIsland ? `⛵` : resourceIcon; // Just ship for the icon slot, resource in label maybe?
+                // Actually, let's keep the resource emoji for clarity but styled better.
+                const shipEmoji = "⛵";
 
                 return (
-                    <g key={`port-${i}`}>
+                    <g key={`port-${i}`} style={{ pointerEvents: 'none' }}>
                         {/* Lines from port label to the two vertices */}
                         <line
                             x1={outX} y1={outY}
                             x2={v1.x} y2={v1.y}
-                            stroke="rgba(150, 200, 255, 0.35)"
-                            strokeWidth={1.5}
+                            stroke={isInternalPort ? "rgba(255, 255, 255, 0.5)" : "rgba(150, 200, 255, 0.35)"}
+                            strokeWidth={isInternalPort ? 2 : 1.5}
                             strokeDasharray="3 2"
                         />
                         <line
                             x1={outX} y1={outY}
                             x2={v2.x} y2={v2.y}
-                            stroke="rgba(150, 200, 255, 0.35)"
-                            strokeWidth={1.5}
+                            stroke={isInternalPort ? "rgba(255, 255, 255, 0.5)" : "rgba(150, 200, 255, 0.35)"}
+                            strokeWidth={isInternalPort ? 2 : 1.5}
                             strokeDasharray="3 2"
                         />
+
+                        {/* Water ripple for ships */}
+                        {isInternalPort && (
+                            <ellipse
+                                cx={outX} cy={outY + 4}
+                                rx={14} ry={6}
+                                fill="rgba(255, 255, 255, 0.15)"
+                            />
+                        )}
+
                         {/* Port vertex dots */}
                         <circle cx={v1.x} cy={v1.y} r={3} fill="rgba(150, 200, 255, 0.5)" />
                         <circle cx={v2.x} cy={v2.y} r={3} fill="rgba(150, 200, 255, 0.5)" />
-                        {/* Port label background */}
-                        <rect
-                            className="port-bg"
-                            x={outX - 16}
-                            y={outY - 10}
-                            width={32}
-                            height={20}
-                            rx={4}
-                        />
+
+                        {/* Port label background (Only for external ports) */}
+                        {!isInternalPort && (
+                            <rect
+                                className="port-bg"
+                                x={outX - 18}
+                                y={outY - 12}
+                                width={36}
+                                height={24}
+                                rx={6}
+                            />
+                        )}
+
                         {/* Port icon */}
-                        <text x={outX} y={outY - 2} textAnchor="middle" dominantBaseline="central" fontSize="8">
+                        <text
+                            x={outX} y={isInternalPort ? outY - 4 : outY - 3}
+                            textAnchor="middle"
+                            dominantBaseline="central"
+                            fontSize={isInternalPort ? "20" : "12"}
+                        >
                             {icon}
                         </text>
+
+                        {/* Resource icon inside for ship */}
+                        {isInternalPort && (
+                            <text x={outX + 6} y={outY + 2} fontSize="10">
+                                {resourceIcon}
+                            </text>
+                        )}
+
                         {/* Port ratio */}
-                        <text className="port-label" x={outX} y={outY + 6} fontSize="7">
+                        <text
+                            className="port-label"
+                            x={outX} y={isInternalPort ? outY + 12 : outY + 7}
+                            fontSize={isInternalPort ? "8" : "9"}
+                            fill={isInternalPort ? "white" : undefined}
+                            style={isInternalPort ? { fontWeight: 'bold', textShadow: '0 1px 2px rgba(0,0,0,0.5)' } : {}}
+                        >
                             {label}
                         </text>
                     </g>
@@ -201,8 +337,23 @@ export default function HexGrid({ board, validPlacements, onVertexClick, onEdgeC
                 const hasRoad = edge.road;
                 const player = hasRoad ? players?.find(p => p.id === edge.road.playerId) : null;
 
+                // An edge is a boundary/gap edge if it touches sea/foso
+                const isBoundary = board.vertices[edge.vertices[0]].hexIds.length < 3 ||
+                    board.vertices[edge.vertices[1]].hexIds.length < 3;
+
                 return (
                     <g key={`edge-${edge.id}`} className="edge-spot">
+                        {/* Debug Mode: clickable hitboxes for ALL edges */}
+                        {isDebug && (
+                            <line
+                                x1={v1.x} y1={v1.y}
+                                x2={v2.x} y2={v2.y}
+                                stroke={board.ports.some(p => p.edgeId === edge.id) ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.1)"}
+                                strokeWidth={10}
+                                onClick={(e) => { e.stopPropagation(); onDebugEdgeClick(edge.id); }}
+                                style={{ cursor: 'copy' }}
+                            />
+                        )}
                         {/* Valid placement: fat invisible hitbox + visible indicator */}
                         {isValid && (buildMode === 'road' || showSetupRoad) && (
                             <>
