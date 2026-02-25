@@ -385,6 +385,13 @@ export class GameState {
 
         const target = this.getPlayer(targetId);
         if (!target) return { error: 'Invalid target' };
+
+        // Verify target is actually on the robber hex or in valid targets
+        const validTargets = this._getStealTargets(this.board.robberHex, playerId);
+        if (!validTargets.find(p => p.id === targetId)) {
+            return { error: 'Target not on robber hex' };
+        }
+
         if (target.totalResources === 0) return { error: 'Target has no resources' };
 
         // Steal random resource
@@ -1011,6 +1018,9 @@ export class GameState {
             if (player.canAfford(BUILDING_COSTS.city)) {
                 result.cities = this.getValidCityPlacements(playerId);
             }
+        } else if (this.phase === GAME_PHASES.STEAL) {
+            const targets = this._getStealTargets(this.board.robberHex, playerId);
+            result.stealTargets = targets.map(p => p.id);
         }
 
         return result;

@@ -218,7 +218,7 @@ export default function GameBoard({ gameState, lastDice, chatMessages, emit, emi
                         </p>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                             {gameState.players
-                                .filter(p => p.id !== gameState.myPlayerId && p.totalResources > 0)
+                                .filter(p => (validPlacements.stealTargets || []).includes(p.id))
                                 .map(p => (
                                     <button
                                         key={p.id}
@@ -229,6 +229,9 @@ export default function GameBoard({ gameState, lastDice, chatMessages, emit, emi
                                         {p.name} ({p.totalResources} cards)
                                     </button>
                                 ))}
+                            {(validPlacements.stealTargets || []).length === 0 && (
+                                <p style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No one to steal from.</p>
+                            )}
                         </div>
                     </div>
                 </div>

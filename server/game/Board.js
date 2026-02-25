@@ -110,15 +110,39 @@ export class Board {
         } else {
             const totalHexes = this.hexes.length;
             const nonDesert = totalHexes - this.desertCount;
-            const terrainTypes = [TERRAIN.FOREST, TERRAIN.HILLS, TERRAIN.FIELDS, TERRAIN.PASTURE, TERRAIN.MOUNTAINS];
+
+            // Classic Catan proportions (4:4:4:3:3)
+            const baseRatios = {
+                [TERRAIN.FOREST]: 4,
+                [TERRAIN.FIELDS]: 4,
+                [TERRAIN.PASTURE]: 4,
+                [TERRAIN.HILLS]: 3,
+                [TERRAIN.MOUNTAINS]: 3
+            };
+            const ratioTotal = 18;
+            const terrainTypes = Object.keys(baseRatios);
+
+            // Calculate exact counts based on proportions
+            let counts = {};
+            let assignedTotal = 0;
+            terrainTypes.forEach(type => {
+                counts[type] = Math.floor((baseRatios[type] / ratioTotal) * nonDesert);
+                assignedTotal += counts[type];
+            });
+
+            // Fill remaining with random (or prioritized) to reach nonDesert
+            while (assignedTotal < nonDesert) {
+                // Prioritize lower count terrains or wood/wheat/sheep for balance
+                const type = terrainTypes[Math.floor(Math.random() * terrainTypes.length)];
+                counts[type]++;
+                assignedTotal++;
+            }
 
             for (let i = 0; i < this.desertCount; i++) terrains.push(TERRAIN.DESERT);
-            const perType = Math.floor(nonDesert / terrainTypes.length);
-            const extra = nonDesert % terrainTypes.length;
-            for (let i = 0; i < terrainTypes.length; i++) {
-                const count = perType + (i < extra ? 1 : 0);
-                for (let j = 0; j < count; j++) terrains.push(terrainTypes[i]);
-            }
+            terrainTypes.forEach(type => {
+                for (let j = 0; j < counts[type]; j++) terrains.push(type);
+            });
+
             this._shuffle(terrains);
             this.hexes.forEach((hex, i) => {
                 if (!hex.terrain) hex.terrain = terrains[i] || TERRAIN.DESERT;
