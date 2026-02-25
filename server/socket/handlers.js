@@ -61,7 +61,7 @@ export function registerSocketHandlers(io, gameManager) {
             const game = getGame();
             if (!game) return callback?.({ error: 'Not in a room' });
 
-            const result = game.startGame();
+            const result = game.startGame(socket.id);
             if (result.error) return callback?.({ error: result.error });
 
             callback?.({ success: true });
